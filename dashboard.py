@@ -197,7 +197,7 @@ def build_pdf_report(report_data, exp_dict, permissions_list, tactics_dict):
             pdf.set_font("helvetica", "", 9)
             for entry in entries:
                 text_line = f"  - Technique: {entry['technique']} | Permission: {entry['permission']}\n    Detail: {entry['description']}"
-                pdf.multi_cell(0, 5, text_line)
+                pdf.multi_cell(0, 5, text_line, new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(1)
             pdf.ln(2)
 
@@ -213,46 +213,65 @@ def build_pdf_report(report_data, exp_dict, permissions_list, tactics_dict):
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Executive Summary:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    pdf.multi_cell(0, 5, str(exp_dict.get("executive_summary", "No summary generated.")))
+    pdf.multi_cell(0, 5, str(exp_dict.get("executive_summary", "No summary generated.")), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
     
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Flagged Indicators & Analysis:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    for reason in exp_dict.get("flagged_reasons", []):
-        cleaned_reason = reason.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
-        pdf.multi_cell(0, 5, f"- {cleaned_reason}")
+    reasons = exp_dict.get("flagged_reasons", [])
+    if isinstance(reasons, str):
+        cleaned_reasons = reasons.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+        pdf.multi_cell(0, 5, cleaned_reasons, new_x="LMARGIN", new_y="NEXT")
+    else:
+        for reason in reasons:
+            cleaned_reason = reason.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+            pdf.multi_cell(0, 5, f"- {cleaned_reason}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
     
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Dangerous Permission Exposures:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    for cap in exp_dict.get("dangerous_permissions", []):
-        cleaned_cap = cap.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
-        pdf.multi_cell(0, 5, f"- {cleaned_cap}")
-    if not exp_dict.get("dangerous_permissions"):
+    caps = exp_dict.get("dangerous_permissions", [])
+    if isinstance(caps, str):
+        cleaned_caps = caps.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+        pdf.multi_cell(0, 5, cleaned_caps, new_x="LMARGIN", new_y="NEXT")
+    else:
+        for cap in caps:
+            cleaned_cap = cap.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+            pdf.multi_cell(0, 5, f"- {cleaned_cap}", new_x="LMARGIN", new_y="NEXT")
+    if not caps:
         pdf.cell(0, 5, "None identified.", ln=True)
     pdf.ln(3)
     
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Threat Level Evaluation:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    pdf.multi_cell(0, 5, str(exp_dict.get("threat_level_assessment", "")))
+    pdf.multi_cell(0, 5, str(exp_dict.get("threat_level_assessment", "")), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
     
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Mitigation Recommendations:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    for rec in exp_dict.get("user_recommendation", []):
-        cleaned_rec = rec.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]").replace("🟡", "[AUDIT]")
-        pdf.multi_cell(0, 5, f"- {cleaned_rec}")
+    recs = exp_dict.get("user_recommendation", [])
+    if isinstance(recs, str):
+        cleaned_recs = recs.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]").replace("🟡", "[AUDIT]")
+        pdf.multi_cell(0, 5, cleaned_recs, new_x="LMARGIN", new_y="NEXT")
+    else:
+        for rec in recs:
+            cleaned_rec = rec.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]").replace("🟡", "[AUDIT]")
+            pdf.multi_cell(0, 5, f"- {cleaned_rec}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
     
     pdf.set_font("helvetica", "B", 10)
     pdf.cell(0, 6, "Enterprise Business Impact:", ln=True)
     pdf.set_font("helvetica", "", 9)
-    for impact in exp_dict.get("business_impact", []):
-        pdf.multi_cell(0, 5, f"- {impact}")
+    impacts = exp_dict.get("business_impact", [])
+    if isinstance(impacts, str):
+        pdf.multi_cell(0, 5, impacts, new_x="LMARGIN", new_y="NEXT")
+    else:
+        for impact in impacts:
+            pdf.multi_cell(0, 5, f"- {impact}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(5)
     
     if "_info" in exp_dict:

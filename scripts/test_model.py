@@ -1,0 +1,22 @@
+import joblib
+import os
+import sys
+
+# Resolve paths
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if os.path.basename(current_dir) in ["src", "scripts"]:
+    project_root = os.path.abspath(os.path.join(current_dir, ".."))
+else:
+    project_root = os.path.abspath(current_dir)
+
+model_path = os.path.join(project_root, "models", "malware_model.pkl")
+if not os.path.exists(model_path):
+    model_path = os.path.join(project_root, "malware_model.pkl")
+
+if not os.path.exists(model_path):
+    print(f"Error: Model not found at {model_path}")
+    sys.exit(1)
+
+model = joblib.load(model_path)
+print("Model loaded successfully!")
+print(model)

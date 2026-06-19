@@ -1,0 +1,40 @@
+{
+  "package": "com.nononsenseapps.notepad",
+  "permissions": [
+    "android.permission.WRITE_SYNC_SETTINGS",
+    "android.permission.POST_NOTIFICATIONS",
+    "com.nononsenseapps.notepad.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+    "android.permission.SCHEDULE_EXACT_ALARM",
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.READ_SYNC_SETTINGS",
+    "android.permission.READ_SYNC_STATS"
+  ],
+  "activities": [
+    "com.nononsenseapps.notepad.activities.main.ActivityMain_",
+    "com.nononsenseapps.notepad.activities.ActivityTaskHistory",
+    "com.nononsenseapps.notepad.activities.ActivitySearch",
+    "com.nononsenseapps.notepad.activities.ActivitySearchDeleted",
+    "com.nononsenseapps.notepad.prefs.PrefsActivity",
+    "com.nononsenseapps.notepad.dashclock.DashclockPrefActivity",
+    "com.nononsenseapps.notepad.widget.list.ListWidgetConfig",
+    "com.nononsenseapps.notepad.widget.shortcut.ShortcutConfig"
+  ],
+  "services": [
+    "com.nononsenseapps.notepad.widget.list.ListWidgetService",
+    "com.nononsenseapps.notepad.dashclock.TasksExtension",
+    "com.nononsenseapps.notepad.sync.orgsync.OrgSyncService"
+  ],
+  "receivers": [
+    "com.nononsenseapps.notepad.NotePadBroadcastReceiver",
+    "com.nononsenseapps.notepad.widget.list.ListWidgetProvider",
+    "com.nononsenseapps.helpers.NotificationHelper",
+    "com.nononsenseapps.notepad.sync.orgsync.BackgroundSyncScheduler",
+    "androidx.profileinstaller.ProfileInstallReceiver"
+  ],
+  "providers": [
+    "com.nononsenseapps.notepad.android.provider.TextFileProvider",
+    "androidx.startup.InitializationProvider",
+    "com.nononsenseapps.notepad.database.MyContentProvider",
+    "com.nononsenseapps.notepad.android.provider.DummyProvider"
+  ]
+}

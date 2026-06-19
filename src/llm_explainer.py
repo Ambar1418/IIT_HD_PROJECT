@@ -181,27 +181,43 @@ def format_explanation_markdown(exp_dict):
     md.append(f"### 📋 Executive Summary\n{exp_dict.get('executive_summary', '')}\n")
     
     md.append("### 🚩 Flagged Risk Indicators")
-    for reason in exp_dict.get("flagged_reasons", []):
-        md.append(f"- {reason}")
+    reasons = exp_dict.get("flagged_reasons", [])
+    if isinstance(reasons, str):
+        md.append(reasons)
+    else:
+        for reason in reasons:
+            md.append(f"- {reason}")
     md.append("")
     
     md.append("### 🔑 Dangerous Capabilities Enabled")
-    for perm in exp_dict.get("dangerous_permissions", []):
-        md.append(f"- {perm}")
-    if not exp_dict.get("dangerous_permissions"):
+    perms = exp_dict.get("dangerous_permissions", [])
+    if isinstance(perms, str):
+        md.append(perms)
+    else:
+        for perm in perms:
+            md.append(f"- {perm}")
+    if not perms:
         md.append("No dangerous permissions identified.")
     md.append("")
     
     md.append(f"### 🚨 Threat Level Assessment\n{exp_dict.get('threat_level_assessment', '')}\n")
     
     md.append("### 💡 Recommended Actions")
-    for rec in exp_dict.get("user_recommendation", []):
-        md.append(f"- {rec}")
+    recs = exp_dict.get("user_recommendation", [])
+    if isinstance(recs, str):
+        md.append(recs)
+    else:
+        for rec in recs:
+            md.append(f"- {rec}")
     md.append("")
     
     md.append("### 🏢 Enterprise Business Impact")
-    for impact in exp_dict.get("business_impact", []):
-        md.append(f"- {impact}")
+    impacts = exp_dict.get("business_impact", [])
+    if isinstance(impacts, str):
+        md.append(impacts)
+    else:
+        for impact in impacts:
+            md.append(f"- {impact}")
     md.append("")
     
     if "_info" in exp_dict:

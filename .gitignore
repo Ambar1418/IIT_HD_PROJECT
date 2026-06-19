@@ -44,6 +44,7 @@ venv/
 .venv/
 env/
 .env
+.env.*
 
 # Streamlit
 .streamlit/
@@ -64,3 +65,4 @@ Thumbs.db
 *report.json
 output/
 decompiled/
+*.pdf

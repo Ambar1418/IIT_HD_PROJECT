@@ -2,6 +2,8 @@ import streamlit as st
 import json
 import os
 import sys
+import tempfile
+from fpdf import FPDF
 from androguard.core.apk import APK
 
 # Add src/ directory to path to load core modules
@@ -11,8 +13,13 @@ from core_analyzer import (
     load_ml_model, 
     load_feature_names, 
     predict_malware,
+    get_mitre_attack_mapping,
     HIGH_RISK_PERMISSIONS,
     MEDIUM_RISK_PERMISSIONS
+)
+from llm_explainer import (
+    generate_security_explanation,
+    format_explanation_markdown
 )
 
 # Page Configuration for Premium Dashboard
@@ -23,51 +30,258 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Premium Styling
+# Custom styling for premium UI dashboard
 st.markdown("""
 <style>
+    /* Main Layout Themes */
     .reportview-container {
-        background: #0e1117;
+        background-color: #0b0f19;
     }
-    .metric-card {
-        background-color: #1e293b;
-        border-radius: 10px;
-        padding: 15px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    
+    /* Premium CSS metric cards */
+    .custom-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155;
-    }
-    .header-style {
-        font-family: 'Inter', sans-serif;
-        font-weight: 800;
-        color: #f8fafc;
-    }
-    .badge {
-        display: inline-block;
-        padding: 0.25em 0.6em;
-        font-size: 75%;
-        font-weight: 700;
-        line-height: 1;
+        border-radius: 12px;
+        padding: 20px;
         text-align: center;
-        white-space: nowrap;
-        vertical-align: baseline;
-        border-radius: 0.375rem;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        transition: transform 0.2s ease-in-out;
     }
-    .badge-high { background-color: #ef4444; color: white; }
-    .badge-medium { background-color: #f59e0b; color: white; }
-    .badge-low { background-color: #10b981; color: white; }
+    .custom-card:hover {
+        transform: translateY(-5px);
+        border-color: #3b82f6;
+    }
+    .custom-card h4 {
+        margin: 0;
+        color: #94a3b8;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .custom-card p {
+        margin: 10px 0 0 0;
+        color: #f8fafc;
+        font-size: 1.8rem;
+        font-weight: 800;
+        line-height: 1;
+    }
+    
+    /* Threat Level Badges */
+    .verdict-badge {
+        display: inline-block;
+        padding: 8px 16px;
+        font-size: 1rem;
+        font-weight: 700;
+        border-radius: 8px;
+        text-align: center;
+        text-transform: uppercase;
+    }
+    .verdict-malware {
+        background-color: #ef4444;
+        color: #ffffff;
+        border: 1px solid #b91c1c;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    }
+    .verdict-suspicious {
+        background-color: #f59e0b;
+        color: #ffffff;
+        border: 1px solid #b45309;
+        box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+    }
+    .verdict-benign {
+        background-color: #10b981;
+        color: #ffffff;
+        border: 1px solid #047857;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------
-# SIDEBAR / LOAD ASSETS
+# PDF REPORT EXPORTER CLASS
+# ---------------------------
+class APKAnalysisPDF(FPDF):
+    def header(self):
+        # Slate top header rule
+        self.set_font("helvetica", "B", 16)
+        self.set_text_color(15, 23, 42) # Dark Slate
+        self.cell(0, 10, "Android APK Malware Analysis Report", ln=True, align="L")
+        self.set_font("helvetica", "I", 9)
+        self.set_text_color(100, 116, 139) # Light Slate
+        self.cell(0, 5, "Platform Diagnostics & Artificial Intelligence Threat Assessment", ln=True, align="L")
+        self.line(10, 26, 200, 26)
+        self.ln(10)
+        
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("helvetica", "I", 8)
+        self.set_text_color(148, 163, 184)
+        # Page Number
+        self.cell(0, 10, f"Page {self.page_no()}/{{nb}} | Confidential System Intelligence Diagnostic Report", align="C")
+
+def build_pdf_report(report_data, exp_dict, permissions_list, tactics_dict):
+    """
+    Assembles a styled PDF report using fpdf2 and outputs bytes for download.
+    Removes emojis dynamically to avoid standard font encoding crashes.
+    """
+    pdf = APKAnalysisPDF()
+    pdf.alias_nb_pages()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    
+    # ------------------
+    # Section 1: Metadata
+    # ------------------
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(0, 8, "1. Application Metadata", ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    pdf.cell(50, 6, f"Package Identifier:", border=0)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, str(report_data["package"]), border=0, ln=True)
+    
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(50, 6, "Total Permissions Flagged:", border=0)
+    pdf.cell(0, 6, str(report_data["total_permissions"]), border=0, ln=True)
+    pdf.ln(4)
+    
+    # ------------------
+    # Section 2: Classifier Scores
+    # ------------------
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(0, 8, "2. Threat Classification & Metrics", ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "", 10)
+    pdf.set_text_color(51, 65, 85)
+    
+    pdf.cell(50, 6, "ML Classification Verdict:", border=0)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, str(report_data["ml_prediction"]), border=0, ln=True)
+    
+    pdf.set_font("helvetica", "", 10)
+    pdf.cell(50, 6, "Malware Confidence Score:", border=0)
+    pdf.cell(0, 6, f"{report_data['malware_probability']:.2f}%", border=0, ln=True)
+    
+    pdf.cell(50, 6, "Heuristic Risk Index:", border=0)
+    pdf.cell(0, 6, f"{report_data['risk_score']}/100 ({report_data['severity']})", border=0, ln=True)
+    
+    pdf.cell(50, 6, "Integrated Platform Verdict:", border=0)
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, str(report_data["final_verdict"]), border=0, ln=True)
+    pdf.ln(4)
+
+    # ------------------
+    # Section 3: MITRE ATT&CK Mapping
+    # ------------------
+    if tactics_dict:
+        pdf.set_font("helvetica", "B", 12)
+        pdf.set_text_color(30, 41, 59)
+        pdf.cell(0, 8, "3. MITRE ATT&CK Adversary Techniques Map", ln=True)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(3)
+        
+        pdf.set_font("helvetica", "", 9)
+        for tactic, entries in tactics_dict.items():
+            pdf.set_font("helvetica", "B", 10)
+            pdf.set_text_color(15, 23, 42)
+            pdf.cell(0, 6, f"Tactic: {tactic}", ln=True)
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_font("helvetica", "", 9)
+            for entry in entries:
+                text_line = f"  - Technique: {entry['technique']} | Permission: {entry['permission']}\n    Detail: {entry['description']}"
+                pdf.multi_cell(0, 5, text_line)
+                pdf.ln(1)
+            pdf.ln(2)
+
+    # ------------------
+    # Section 4: AI Security Explanation
+    # ------------------
+    pdf.set_font("helvetica", "B", 12)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(0, 8, "4. Artificial Intelligence Security Assessment", ln=True)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Executive Summary:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    pdf.multi_cell(0, 5, str(exp_dict.get("executive_summary", "No summary generated.")))
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Flagged Indicators & Analysis:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    for reason in exp_dict.get("flagged_reasons", []):
+        cleaned_reason = reason.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+        pdf.multi_cell(0, 5, f"- {cleaned_reason}")
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Dangerous Permission Exposures:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    for cap in exp_dict.get("dangerous_permissions", []):
+        cleaned_cap = cap.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]")
+        pdf.multi_cell(0, 5, f"- {cleaned_cap}")
+    if not exp_dict.get("dangerous_permissions"):
+        pdf.cell(0, 5, "None identified.", ln=True)
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Threat Level Evaluation:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    pdf.multi_cell(0, 5, str(exp_dict.get("threat_level_assessment", "")))
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Mitigation Recommendations:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    for rec in exp_dict.get("user_recommendation", []):
+        cleaned_rec = rec.replace("⚠️", "[WARNING]").replace("🚨", "[ALERT]").replace("🔴", "[CRITICAL]").replace("🟡", "[AUDIT]")
+        pdf.multi_cell(0, 5, f"- {cleaned_rec}")
+    pdf.ln(3)
+    
+    pdf.set_font("helvetica", "B", 10)
+    pdf.cell(0, 6, "Enterprise Business Impact:", ln=True)
+    pdf.set_font("helvetica", "", 9)
+    for impact in exp_dict.get("business_impact", []):
+        pdf.multi_cell(0, 5, f"- {impact}")
+    pdf.ln(5)
+    
+    if "_info" in exp_dict:
+        pdf.set_font("helvetica", "I", 7)
+        pdf.set_text_color(148, 163, 184)
+        pdf.cell(0, 5, f"Information: {exp_dict['_info']}", ln=True)
+
+    return bytes(pdf.output())
+
+# ---------------------------
+# SIDEBAR SETTINGS
 # ---------------------------
 st.sidebar.image("https://img.icons8.com/nolan/128/security-shield.png", width=80)
-st.sidebar.title("🛡️ Analyzer Settings")
+st.sidebar.title("🛡️ Controls & API config")
 st.sidebar.markdown("---")
 
-# Dynamic path resolution for models and features
-model_path = "models/malware_model.pkl" if os.path.exists("models/malware_model.pkl") else "malware_model.pkl"
-features_path = "data/drebin_features.json" if os.path.exists("data/drebin_features.json") else "data/drebin_features.json"
+# LLM Config API key
+groq_key = st.sidebar.text_input("Enter GROQ API Key (Optional)", type="password", help="Paste your Groq API Key to enable Llama 3.3 AI explanations. If left blank, local heuristics explanation will be active.")
+if not groq_key:
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+
+if groq_key:
+    st.sidebar.success("🔑 Groq LLM Explainer Ready!")
+else:
+    st.sidebar.info("💡 Running in Local Heuristics Explainer mode.")
+
+# Assets path mapping
+model_path = "models/malware_model.pkl" if os.path.exists("models/malware_model.pkl") else "../models/malware_model.pkl"
+features_path = "data/drebin_features.json" if os.path.exists("data/drebin_features.json") else "../data/drebin_features.json"
 
 @st.cache_resource
 def load_assets(m_path, f_path):
@@ -81,38 +295,34 @@ def load_assets(m_path, f_path):
 model, feature_names, load_error = load_assets(model_path, features_path)
 
 if load_error:
-    st.sidebar.error(f"❌ Error loading assets: {load_error}")
+    st.sidebar.error(f"❌ Error loading model: {load_error}")
 else:
-    st.sidebar.success("✅ Model and Drebin features loaded successfully!")
+    st.sidebar.success("✅ XGBoost Model Ready!")
 
 st.sidebar.markdown("""
-### Model & Dataset Info
-* **Model Type:** XGBoost Classifier
-* **Dataset:** Drebin Dataset
-* **Samples:** 15,036 samples
-* **Accuracy:** 98.6%
-* **Features Used:** 215 static permission signatures
+### Model Specifications
+- **Trained Classifier:** XGBoost
+- **Dataset:** Drebin Malware Dataset
+- **Classification Accuracy:** 98.6%
+- **Input Signatures:** 215 Features
 """)
 
 # ---------------------------
 # MAIN HEADER
 # ---------------------------
 st.title("🛡️ Android APK Malware Analyzer")
-st.markdown("### AI-Powered Static Analysis & Machine Learning Malware Classification Engine")
-st.markdown("Analyze Android installation packages in real-time to detect threats, inspect permission profiles, and calculate dynamic security risk scores.")
+st.markdown("### AI-Powered Multi-Layer Threat Classification Platform")
+st.markdown("Extract static attributes from Android packages (`.apk`) and feed them through a multi-tier risk-scoring engine, XGBoost classifier, MITRE ATT&CK analyzer, and a Groq Llama 3.3 LLM security layer.")
 st.markdown("---")
 
 # ---------------------------
 # FILE UPLOAD SECTION
 # ---------------------------
-col_upload1, col_upload2 = st.columns([2, 1])
-
-with col_upload1:
-    uploaded_file = st.file_uploader(
-        "Upload Android APK file or Manifest JSON",
-        type=["apk", "json"],
-        help="Upload a raw Android .apk file for real-time parsing OR a pre-extracted .json manifest."
-    )
+uploaded_file = st.file_uploader(
+    "Upload APK file or Android Manifest JSON",
+    type=["apk", "json"],
+    help="Upload a raw APK file to dynamically parse permissions and services using Androguard, or upload a JSON manifest report."
+)
 
 manifest = None
 
@@ -120,7 +330,7 @@ if uploaded_file:
     file_extension = os.path.splitext(uploaded_file.name)[1].lower()
     
     if file_extension == ".apk":
-        with st.spinner("⚡ Extracting APK Manifest using Androguard Parser..."):
+        with st.spinner("⚡ Running Androguard Manifest Decompiler..."):
             try:
                 apk_bytes = uploaded_file.read()
                 apk = APK(apk_bytes, raw=True)
@@ -134,19 +344,19 @@ if uploaded_file:
                 }
                 st.success(f"🎉 Successfully parsed APK: `{manifest['package']}`")
             except Exception as e:
-                st.error(f"❌ Androguard failed to parse APK: {e}")
+                st.error(f"❌ Androguard failed to extract manifest: {e}")
                 manifest = None
                 
     elif file_extension == ".json":
         try:
             manifest = json.load(uploaded_file)
-            st.success(f"🎉 Successfully loaded JSON Manifest for package: `{manifest.get('package', 'Unknown')}`")
+            st.success(f"🎉 Loaded JSON Manifest profile: `{manifest.get('package', 'Unknown')}`")
         except Exception as e:
-            st.error(f"❌ Failed to parse JSON manifest: {e}")
+            st.error(f"❌ Invalid JSON structure: {e}")
             manifest = None
 
 # ---------------------------
-# ANALYSIS WORKFLOW
+# COMPREHENSIVE ANALYSIS
 # ---------------------------
 if manifest:
     permissions = manifest.get("permissions", [])
@@ -154,157 +364,206 @@ if manifest:
     services = manifest.get("services", [])
     receivers = manifest.get("receivers", [])
     providers = manifest.get("providers", [])
-    package_name = manifest.get("package", "unknown.package.name")
+    package_name = manifest.get("package", "unknown.package.identifier")
 
     # ==========================
-    # 📦 APK INFO BLOCK
+    # 📦 SECTION 1: METADATA CARDS
     # ==========================
-    st.header("📦 Application Metadata")
+    st.header("📦 Application Structural Metadata")
     
-    # Custom styling cards for stats
-    m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
-    m_col1.metric("Permissions", len(permissions))
-    m_col2.metric("Activities", len(activities))
-    m_col3.metric("Services", len(services))
-    m_col4.metric("Receivers", len(receivers))
-    m_col5.metric("Providers", len(providers))
+    # Render customized cards via CSS
+    card_cols = st.columns(5)
     
-    st.info(f"**Target Package Identifer:** `{package_name}`")
+    labels = ["Permissions", "Activities", "Services", "Receivers", "Providers"]
+    vals = [len(permissions), len(activities), len(services), len(receivers), len(providers)]
+    
+    for idx, col in enumerate(card_cols):
+        col.markdown(f"""
+        <div class="custom-card">
+            <h4>{labels[idx]}</h4>
+            <p>{vals[idx]}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    st.markdown(f"<div style='margin-top: 15px;'><strong>Package Namespace:</strong> <code>{package_name}</code></div>", unsafe_allow_html=True)
+    st.markdown("---")
 
     # ==========================
-    # 📊 RISK & SEVERITY ASSESSMENT
+    # 🚨 SECTION 2: RISK SCORING & ML VERDICT
     # ==========================
-    st.header("📊 Threat Severity & Risk Analysis")
+    st.header("📊 Classification Verdicts & Metrics")
     
     score, severity, findings = calculate_risk_score(permissions, services)
     
-    col_risk1, col_risk2 = st.columns([2, 1])
+    # Machine Learning Inference
+    if model is not None and feature_names is not None:
+        ml_prediction, malware_prob, benign_prob, confidence = predict_malware(permissions, model, feature_names)
+    else:
+        st.warning("Model and feature files failed to load. ML prediction unavailable.")
+        ml_prediction, malware_prob, benign_prob, confidence = "UNAVAILABLE", 0.0, 0.0, 0.0
+
+    # Verdict Matrix Integration
+    if score >= 50:
+        final_verdict = "SUSPICIOUS APK"
+        badge_class = "verdict-suspicious"
+    elif ml_prediction == "MALWARE" and malware_prob >= 70:
+        final_verdict = "MALWARE"
+        badge_class = "verdict-malware"
+    else:
+        final_verdict = "BENIGN"
+        badge_class = "verdict-benign"
+
+    col_metrics1, col_metrics2 = st.columns([1, 1])
     
-    with col_risk1:
-        st.write("**Security Risk Score Index (0 - 100)**")
+    with col_metrics1:
+        st.subheader("Integrated Platform Verdict")
+        st.markdown(f"""
+        <div style="margin: 15px 0;">
+            <span class="verdict-badge {badge_class}">{final_verdict}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.subheader("Heuristic Risk Engine")
+        st.write(f"**Security Risk Score Index:** {score}/100")
         st.progress(score / 100.0)
         
-        # Display large customized status alert
+        # Color-coded progress alerts
         if severity == "HIGH":
-            st.error(f"🚨 **HIGH THREAT SEVERITY DETECTED (Risk Score: {score}/100)**")
+            st.error("🔴 **HIGH RISK SEVERITY:** Suspicious combinations or high quantity of dangerous permissions found.")
         elif severity == "MEDIUM":
-            st.warning(f"⚠️ **MEDIUM THREAT SEVERITY DETECTED (Risk Score: {score}/100)**")
+            st.warning("🟠 **MEDIUM RISK SEVERITY:** Standard location, media, or network communication requests.")
         else:
-            st.success(f"✅ **LOW THREAT SEVERITY (Risk Score: {score}/100)**")
-            
-    with col_risk2:
-        st.metric(label="Risk Assessment Band", value=severity, delta=f"+{score} Score Points")
+            st.success("🟢 **LOW RISK SEVERITY:** Common system utilities permissions only.")
+
+    with col_metrics2:
+        st.subheader("Malware Classifier Probability")
+        
+        # Display SVG Gauge indicator
+        stroke_color = "#ef4444" if ml_prediction == "MALWARE" else "#10b981"
+        # Circumference is 377. Compute offset
+        offset = 377 - (377 * confidence / 100.0)
+        
+        gauge_html = f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #1e293b; border-radius: 12px; padding: 25px; border: 1px solid #334155;">
+            <svg width="150" height="150" viewBox="0 0 150 150">
+                <circle cx="75" cy="75" r="60" stroke="#334155" stroke-width="12" fill="transparent" />
+                <circle cx="75" cy="75" r="60" stroke="{stroke_color}" stroke-width="12" fill="transparent"
+                        stroke-dasharray="377" stroke-dashoffset="{offset}" stroke-linecap="round"
+                        transform="rotate(-90 75 75)" style="transition: stroke-dashoffset 0.8s ease-in-out;" />
+                <text x="75" y="82" fill="#f8fafc" font-size="24" font-weight="bold" text-anchor="middle">{confidence:.2f}%</text>
+            </svg>
+            <div style="color: #94a3b8; margin-top: 15px; font-weight: 700; font-size: 1.1rem; text-transform: uppercase;">
+                {ml_prediction} Confidence
+            </div>
+            <div style="display: flex; justify-content: space-around; width: 100%; margin-top: 15px; font-size: 0.9rem; color: #cbd5e1;">
+                <div>Benign: {benign_prob:.2f}%</div>
+                <div>Malware: {malware_prob:.2f}%</div>
+            </div>
+        </div>
+        """
+        st.markdown(gauge_html, unsafe_allow_html=True)
+
+    st.markdown("---")
 
     # ==========================
-    # 🤖 MACHINE LEARNING PREDICTION
+    # 🛡️ SECTION 3: MITRE ATT&CK MAPPING
     # ==========================
-    st.header("🤖 XGBoost Malware Classification")
+    st.header("📌 MITRE ATT&CK Adversary Techniques Map")
+    st.markdown("Static permissions mapped to industry-standard adversary tactic groups:")
     
-    if model is not None and feature_names is not None:
-        # Predict using core analyzer module
-        ml_prediction, malware_prob, benign_prob, confidence = predict_malware(permissions, model, feature_names)
-        
-        col_ml1, col_ml2, col_ml3, col_ml4 = st.columns(4)
-        
-        if ml_prediction == "MALWARE":
-            col_ml1.markdown(f"#### Class Verdict:\n<span class='badge badge-high' style='font-size:1.5rem;'>MALWARE</span>", unsafe_allow_html=True)
-        else:
-            col_ml1.markdown(f"#### Class Verdict:\n<span class='badge badge-low' style='font-size:1.5rem;'>BENIGN</span>", unsafe_allow_html=True)
-            
-        col_ml2.metric("Malware Confidence", f"{malware_prob:.2f}%")
-        col_ml3.metric("Benign Confidence", f"{benign_prob:.2f}%")
-        col_ml4.metric("Classification Confidence", f"{confidence:.2f}%")
+    tactics = get_mitre_attack_mapping(permissions)
+    
+    if tactics:
+        t_cols = st.columns(len(tactics) if len(tactics) <= 3 else 3)
+        for idx, (tactic, entries) in enumerate(tactics.items()):
+            col_target = t_cols[idx % len(t_cols)]
+            with col_target:
+                with st.expander(f"📁 {tactic} ({len(entries)} Flagged)", expanded=True):
+                    for entry in entries:
+                        st.markdown(f"🚩 **{entry['technique']}**")
+                        st.markdown(f"<span style='color: #94a3b8; font-size:0.85rem;'>API: <code>{entry['permission']}</code></span>", unsafe_allow_html=True)
+                        st.write(entry['description'])
+                        st.markdown("<hr style='margin: 8px 0; border-color: #334155;'>", unsafe_allow_html=True)
     else:
-        st.warning("⚠️ Machine Learning Engine unavailable because model/features failed to load.")
-        ml_prediction, malware_prob, benign_prob = "UNAVAILABLE", 0.0, 0.0
+        st.success("✅ No structural permissions mapped directly to aggressive MITRE ATT&CK techniques.")
+
+    st.markdown("---")
 
     # ==========================
-    # 🔬 STATIC ANALYSIS FINDINGS
+    # 🧠 SECTION 4: AI SECURITY EXPLANATION
     # ==========================
-    st.header("🔬 Detailed Static Code Findings")
+    st.header("🤖 Artificial Intelligence Security Assessment")
     
-    col_det1, col_det2 = st.columns(2)
-    
-    with col_det1:
-        st.subheader("Detected Threat Indicators")
-        if findings:
-            for item in findings:
-                st.markdown(item)
-        else:
-            st.success("No suspicious permission-based patterns triggered.")
-            
-        # Add dynamic findings checks (Static Code indicators)
-        st.subheader("Resource & Component Flags")
-        has_vpn = any("vpn" in s.lower() for s in services)
-        has_install = "android.permission.REQUEST_INSTALL_PACKAGES" in permissions
-        has_query = "android.permission.QUERY_ALL_PACKAGES" in permissions
-        has_internet = "android.permission.INTERNET" in permissions
+    with st.spinner("🤖 Consulting Llama 3.3 Malware Explainer Engine..."):
+        # Generate the explanation dictionary using our explainer module
+        explanation = generate_security_explanation(
+            package_name=package_name,
+            permissions=permissions,
+            risk_score=score,
+            severity=severity,
+            ml_prediction=ml_prediction,
+            malware_prob=malware_prob,
+            final_verdict=final_verdict,
+            api_key=groq_key
+        )
         
-        if has_vpn:
-            st.markdown("🔒 **VPN Service Present:** Component exposes custom network tunneling interface.")
-        if has_install:
-            st.markdown("📦 **Direct APK Deployment:** Application can drop and install packages directly.")
-        if has_query:
-            st.markdown("🔍 **Application Enumeration:** Allowed to search all installed packages on the OS.")
-        if has_internet:
-            st.markdown("🌐 **Internet Access Flag:** Network capability is requested and enabled.")
-        if not (has_vpn or has_install or has_query or has_internet):
-            st.markdown("ℹ️ No extra resource flags triggered.")
-
-    with col_det2:
-        st.subheader("Dangerous Permissions Table")
-        # Build Table of permissions with high/medium tags
-        perm_rows = []
-        for p in permissions:
-            if p in HIGH_RISK_PERMISSIONS:
-                perm_rows.append({"Permission": p, "Risk Tier": "🔴 High Risk", "Weight": HIGH_RISK_PERMISSIONS[p]})
-            elif p in MEDIUM_RISK_PERMISSIONS:
-                perm_rows.append({"Permission": p, "Risk Tier": "🟡 Medium Risk", "Weight": MEDIUM_RISK_PERMISSIONS[p]})
-                
-        if perm_rows:
-            st.table(perm_rows)
-        else:
-            st.write("No defined high/medium risk permissions present in manifest.")
-
-    # ==========================
-    # 🚨 FINAL INTEGRATED VERDICT
-    # ==========================
-    st.header("🚨 Integrated System Verdict")
-    
-    # Consolidated Verdict Matrix
-    # High Risk Score or high ML confidence malware overrides
-    if score >= 50:
-        verdict = "SUSPICIOUS APK"
-        st.warning("⚠️ **VERDICT: SUSPICIOUS APK** — Risk scoring shows high occurrence of dangerous permission tiers.")
-    elif ml_prediction == "MALWARE" and malware_prob >= 70:
-        verdict = "MALWARE"
-        st.error("☠️ **VERDICT: MALWARE** — ML model classifies features with extremely high threat confidence.")
+    # Render Executive Summary inside a styled warning/info box
+    summary = explanation.get("executive_summary", "")
+    if final_verdict == "MALWARE":
+        st.error(f"**Executive Security Summary:** {summary}")
+    elif final_verdict == "SUSPICIOUS APK":
+        st.warning(f"**Executive Security Summary:** {summary}")
     else:
-        verdict = "BENIGN"
-        st.success("🎉 **VERDICT: BENIGN** — Low static indicators and model prediction confirm safe execution parameters.")
+        st.info(f"**Executive Security Summary:** {summary}")
 
-    # Report Structure for Export
-    report = {
+    # Display full explanation
+    st.markdown(format_explanation_markdown(explanation))
+    
+    st.markdown("---")
+
+    # ==========================
+    # 📄 EXPORTS (JSON & PDF)
+    # ==========================
+    st.header("⬇️ Download & Export Diagnostic Reports")
+    
+    report_data = {
         "package": package_name,
         "risk_score": score,
         "severity": severity,
         "ml_prediction": ml_prediction,
-        "confidence": round(confidence, 2) if 'confidence' in locals() else 0.0,
         "malware_probability": round(malware_prob, 2),
         "benign_probability": round(benign_prob, 2),
-        "final_verdict": verdict,
+        "final_verdict": final_verdict,
         "total_permissions": len(permissions)
     }
-
-    # ==========================
-    # 📄 EXPORTABLE JSON REPORT
-    # ==========================
-    st.header("📄 Diagnostic JSON Report")
-    st.json(report)
     
-    st.download_button(
-        "⬇️ Download Analysis Report",
-        data=json.dumps(report, indent=2),
-        file_name=f"{package_name}_analysis_report.json",
-        mime="application/json"
-    )
+    # Generate JSON bytes
+    json_bytes = json.dumps({
+        "platform_verdict": report_data,
+        "mitre_attack_tactics": tactics,
+        "ai_explanation": explanation
+    }, indent=2).encode("utf-8")
+    
+    # Generate PDF bytes
+    with st.spinner("Generating beautiful PDF report..."):
+        pdf_bytes = build_pdf_report(report_data, explanation, permissions, tactics)
+        
+    col_dl1, col_dl2 = st.columns(2)
+    
+    with col_dl1:
+        st.download_button(
+            label="⬇️ Export Diagnostic JSON Report",
+            data=json_bytes,
+            file_name=f"{package_name}_malware_analysis.json",
+            mime="application/json",
+            key="dl_json"
+        )
+        
+    with col_dl2:
+        st.download_button(
+            label="⬇️ Export Certified PDF Report",
+            data=pdf_bytes,
+            file_name=f"{package_name}_malware_analysis.pdf",
+            mime="application/pdf",
+            key="dl_pdf"
+        )

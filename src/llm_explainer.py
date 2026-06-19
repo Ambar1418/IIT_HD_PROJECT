@@ -2,6 +2,16 @@ import os
 import json
 from groq import Groq
 
+# Custom .env loader to support credentials locally without python-dotenv dependency
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(env_path):
+    with open(env_path, "r") as env_file:
+        for line in env_file:
+            line_str = line.strip()
+            if line_str and not line_str.startswith("#") and "=" in line_str:
+                key, val = line_str.split("=", 1)
+                os.environ[key.strip()] = val.strip().strip('"').strip("'")
+
 # Default model requested by user
 GROQ_MODEL = "llama-3.3-70b-versatile"
 

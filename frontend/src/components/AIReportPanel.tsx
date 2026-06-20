@@ -7,11 +7,11 @@ import { motion } from "framer-motion";
 interface AIReportPanelProps {
   explanation: {
     executive_summary: string;
-    flagged_reasons: string[] | string;
-    dangerous_permissions: string[] | string;
+    flagged_reasons: any;
+    dangerous_permissions: any;
     threat_level_assessment: string;
-    user_recommendation: string[] | string;
-    business_impact: string[] | string;
+    user_recommendation: any;
+    business_impact: any;
     _info?: string;
   };
   verdict: string;
@@ -20,11 +20,33 @@ interface AIReportPanelProps {
 export default function AIReportPanel({ explanation, verdict }: AIReportPanelProps) {
   const [activeTab, setActiveTab] = useState<"summary" | "indicators" | "mitigations" | "enterprise">("summary");
 
-  const normalizeList = (val: string[] | string): string[] => {
+  const normalizeList = (val: any): string[] => {
+    if (!val) {
+      return [];
+    }
+    if (Array.isArray(val)) {
+      return val.flatMap((item) => {
+        if (!item) return [];
+        if (typeof item === "string") return [item];
+        if (typeof item === "object") {
+          return Object.entries(item).map(([k, v]) => {
+            const valStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+            return `${k}: ${valStr}`;
+          });
+        }
+        return [String(item)];
+      });
+    }
+    if (typeof val === "object") {
+      return Object.entries(val).map(([k, v]) => {
+        const valStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+        return `${k}: ${valStr}`;
+      });
+    }
     if (typeof val === "string") {
       return [val];
     }
-    return val || [];
+    return [String(val)];
   };
 
   const executiveSummary = explanation.executive_summary || "No summary generated.";

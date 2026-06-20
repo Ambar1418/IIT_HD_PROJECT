@@ -100,36 +100,51 @@ Android-APK-Malware-Analyzer/
 
 ---
 
-## ▶️ Getting Started
+## ▶️ Getting Started (Choose Your Interface)
 
-### 1. Installation
-Clone the repository and set up dependencies:
+### 🚀 Option A: Premium Next.js SaaS Web App & FastAPI (Recommended)
+
+This launches the SaaS-grade dashboard alongside the FastAPI microservice.
+
+#### 1. Configure Groq API Key (Optional)
+To enable Llama 3.3 threat explanations, create a `.env` file in the project root:
+```env
+GROQ_API_KEY="your-groq-api-key"
+```
+
+#### 2. Start FastAPI Backend
+Install python requirements and launch the FastAPI server:
 ```bash
-git clone https://github.com/Ambar1418/IIT_HD_PROJECT.git
-cd IIT_HD_PROJECT
-
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
 pip install -r requirements.txt
+uvicorn api:app --reload --port 8000
 ```
+The backend services will be active on `http://127.0.0.1:8000` (docs available at `/docs`).
 
-### 2. Configure Groq API Key (Optional)
-To enable the Llama 3.3 AI Explanation layer, set the environment variable:
+#### 3. Start Next.js Frontend
+Open a new shell session, go to the `frontend/` directory, and launch the dev server:
 ```bash
-export GROQ_API_KEY="your-groq-api-key"
+cd frontend
+npm run dev
 ```
-*Note: If the key is not set, the platform will automatically fall back to the built-in Heuristics Security Explainer without crashing.*
+Navigate to `http://localhost:3000` in your web browser.
 
-### 3. Run Streamlit Dashboard
+---
+
+### 📊 Option B: Classic Streamlit Dashboard
+
+If you prefer running a single-process python dashboard:
 ```bash
 streamlit run dashboard.py
 ```
-Visit `http://localhost:8501` to access the interactive web interface.
+Go to `http://localhost:8501`.
 
-### 4. Run CLI Analyzer
+---
+
+### 💻 Option C: Command Line Interface (CLI)
+
+Run static diagnostics directly in the shell:
 ```bash
-python apk_analyzer.py
+python3 apk_analyzer.py
 ```
 
 ---

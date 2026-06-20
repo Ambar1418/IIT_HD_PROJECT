@@ -40,15 +40,16 @@ export default function UploadZone({ onFileSelect, isLoading }: UploadZoneProps)
   const simulateProgress = (file: File) => {
     setSelectedFile(file);
     setUploadProgress(0);
+    let currentProgress = 0;
     const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          onFileSelect(file);
-          return 100;
-        }
-        return prev + 10;
-      });
+      currentProgress += 10;
+      if (currentProgress >= 100) {
+        clearInterval(interval);
+        setUploadProgress(100);
+        onFileSelect(file);
+      } else {
+        setUploadProgress(currentProgress);
+      }
     }, 150);
   };
 
